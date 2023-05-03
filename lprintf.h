@@ -11,8 +11,8 @@ extern "C"
 extern FILE *log_file;
 extern unsigned int get_ms(void);
 
-int lprintf(const char *format, ...);
-int __v_lprintf(const char *format, va_list arg_ptr);
+size_t lprintf(const char *format, ...);
+size_t __v_lprintf(const char *format, va_list arg_ptr);
 
 #ifdef __cplusplus
 }

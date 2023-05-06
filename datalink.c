@@ -194,6 +194,7 @@ int main(int argc, char **argv){
 
             case DATA_TIMEOUT:
                 dbg_event("---- DATA %d timeout\n", arg);
+                dbg_frame("Resend DATA %d\n", arg);
                 send_data_frame(arg);
                 break;
 

@@ -19,9 +19,10 @@ static const bool TRUE = 1;
 static const bool FALSE = 0;
 static const int32 DATA_TIMER = 1500; //超时时间1500ms
 static const uint32 ACK_TIMER = 200;
+static const int32 RTT_TIME = 540;//540ms
 //static const uint8 NAK_INTERVAL = 4;
 //static const int32 CHANNEL_DELAY = 270;//270ms
-#define MAX_SEQ 31
+#define MAX_SEQ 47
 #define SEQ_MOD (MAX_SEQ + 1)
 #define WINDOW_SIZE ((MAX_SEQ + 1) >> 1)
 
@@ -108,28 +109,31 @@ int main(int argc, char **argv){
                 if (len < 5 || crc32((unsigned char *)&f, len) != 0) {
                     dbg_event("**** Receiver Error, Bad CRC Checksum\n");
                     
-                    //When accept an error Frame,Find Least Resend Frame, Then Send NAK
+                    //When accept an error Frame,Send Least Resend Frame
+                    
                     uint8 least_resend_frame = 0xff;
                     uint8 least_resend_frame_cnt = 0xff;
                     
-                    //From frame_except_new backward to recv_front,get the frame do not received
-                    for(uint8 i = frame_except_new; i != recv_front ; i = (i - 1) % (MAX_SEQ + 1)){
+                    //From recv_front forward to frame_except_new,get the frame do not received
+                    for(uint8 i = recv_front; i != frame_except_new ; i = (i + 1) % (MAX_SEQ + 1)){
                         if(!recv_arrived[i%WINDOW_SIZE] && nak_counter[i%WINDOW_SIZE] < least_resend_frame_cnt){
                             least_resend_frame_cnt = nak_counter[i%WINDOW_SIZE];
                             least_resend_frame = i;
                         }
                     }
-                    if(!recv_arrived[recv_front%WINDOW_SIZE] && nak_counter[recv_front%WINDOW_SIZE] < least_resend_frame_cnt ){
-                        least_resend_frame = recv_front;
-                        least_resend_frame_cnt = nak_counter[recv_front];
+                    if(!recv_arrived[frame_except_new%WINDOW_SIZE] && nak_counter[frame_except_new%WINDOW_SIZE] < least_resend_frame_cnt ){
+                        least_resend_frame = frame_except_new;
+                        least_resend_frame_cnt = nak_counter[frame_except_new];
                     }
                     nak_counter[least_resend_frame%WINDOW_SIZE]++;
+                    dbg_frame("Least Resend Frame %d, ID %d, Count %d\n",least_resend_frame,*(short *)recv_window[least_resend_frame%WINDOW_SIZE].data,
+                               nak_counter[least_resend_frame%WINDOW_SIZE]);
                     send_nak_frame(least_resend_frame);
                     break;
                 }
                 if(f.kind == FRAME_NAK){
                     dbg_frame("Recv NAK  %d\n", f.ack);
-                    if(is_post_window_exist(f.ack) && get_timer(f.ack) < DATA_TIMER){
+                    if(is_post_window_exist(f.ack) && get_timer(f.ack) < DATA_TIMER - RTT_TIME){
                         dbg_frame("Resend DATA %d, ID %d\n", f.ack, *(short *)post_window[f.ack%WINDOW_SIZE].data);
                         send_data_frame(f.ack);
                     }else{

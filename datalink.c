@@ -28,7 +28,7 @@ typedef FRAME* FRAME_ITER;
 static const bool TRUE = 1;
 static const bool FALSE = 0;
 static const int32 DATA_TIMER = 1500; //超时时间1500ms
-static const int32 ACK_TIMER = 10;
+static const int32 ACK_TIMER = 300; //超时时间300ms
 static const int32 TRAN_TIME = 1000*sizeof(FRAME)/8000;
 static const uint32 ACK_TIMER_ID = 0xff;
 //static const uint8 NAK_INTERVAL = 4;
@@ -267,13 +267,7 @@ static uint8 recv_window_slide(){
 }
 static void send_data_frame(uint8 seq){
     FRAME_ITER iter = &post_window[seq%WINDOW_SIZE];
-    iter->kind = FRAME_DATA;
-    iter->seq = seq;
-    if(is_ack_seq_empty()){
-        iter->ack = MAX_SEQ + 1;//NO ACK Provided
-    }else{
-        iter->ack = pop_oldest_ack_seq();
-    }
+    
     put_frame((byte*)iter,3 + PKT_LEN);
 
     dbg_frame("Send DATA %d, Seq Num %d, Piggybacking %d, ID %d\n", iter->seq, seq, iter->ack, *(short *)iter->data);
@@ -296,7 +290,13 @@ static void put_frame(byte *frame, int len){
 static void post_window_push(byte *buf,int32 len){
     FRAME_ITER iter = &post_window[next_frame_id%WINDOW_SIZE];
     memcpy(iter->data,buf,len);
-    
+    iter->kind = FRAME_DATA;
+    iter->seq = next_frame_id;
+    if(is_ack_seq_empty()){
+        iter->ack = MAX_SEQ + 1;//NO ACK Provided
+    }else{
+        iter->ack = pop_oldest_ack_seq();
+    }
 }
 static void send_ack_frame(uint8 seq){
     FRAME s;

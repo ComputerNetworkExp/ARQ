@@ -27,10 +27,9 @@ typedef FRAME* FRAME_ITER;
 //DIY Constance
 static const bool TRUE = 1;
 static const bool FALSE = 0;
-static const int32 DATA_TIMER = 1500; //超时时间1500ms
+static const int32 DATA_TIMER = 2000; //超时时间1500ms
 static const int32 ACK_TIMER = 300; //超时时间300ms
 static const int32 TRAN_TIME = 1000*sizeof(FRAME)/8000;
-static const uint32 ACK_TIMER_ID = 0x80;
 //static const uint8 NAK_INTERVAL = 4;
 //static const int32 CHANNEL_DELAY = 270;//270ms
 #define MAX_SEQ 63
@@ -48,13 +47,13 @@ static bool phl_ready = FALSE;
 static FRAME recv_window[WINDOW_SIZE],post_window[WINDOW_SIZE];
 static bool recv_arrived[WINDOW_SIZE],post_arrived[WINDOW_SIZE];
 static uint8 nak_counter[WINDOW_SIZE];
-static uint8 frame_expect_new = 0;
+static uint8 frame_except_new = 0;
 static uint8 recv_front = 0;//Lower Edge of Receiver
 static uint8 recv_tail = WINDOW_SIZE;
 static uint8 oldest_frame_id = 0;
 static uint8 next_frame_id = 0;
 
-static uint8 ack_sequence[WINDOW_SIZE];
+static uint8 ack_sequence[SEQ_MOD];
 static uint8 ack_sequence_front = 0;
 static uint8 ack_sequence_tail = 0; 
 
@@ -134,32 +133,28 @@ int main(int argc, char **argv){
                 if (f.kind == FRAME_DATA) {
                     dbg_frame("Recv DATA %d, Piggybacking ACK %d, ID %d\n", f.seq, f.ack, *(short *)f.data);
                     push_ack_seq(f.seq);
-                    //send_ack_frame(f.seq);
-                    // check whether the ACK Timer exists
-                    if(get_timer(ACK_TIMER_ID) == 0){
-                        start_ack_timer(ACK_TIMER);//Start Timer for ACK, Piggybacking or Sending single ACK Frame
-                    }
-                    // check 
+                    start_ack_timer(ACK_TIMER);//Start Timer for ACK, Piggybacking or Sending single ACK Frame
+                    
                     if(is_recv_waiting(f.seq) && !recv_arrived[f.seq%WINDOW_SIZE]){
-                        //Update frame_expect_new to the newest possible Frame
-                        if(frame_expect_new == f.seq){
-                            frame_expect_new = (frame_expect_new + 1) % (MAX_SEQ + 1);
-                            if(!is_recv_waiting(frame_expect_new)){
-                                frame_expect_new = f.seq;
+                        //Update frame_except_new to the newest possible Frame
+                        if(frame_except_new == f.seq){
+                            frame_except_new = (frame_except_new + 1) % (MAX_SEQ + 1);
+                            if(!is_recv_waiting(frame_except_new)){
+                                frame_except_new = f.seq;
                             }
                         }
-                        //frame_expect_new = f.seq;
+                        //frame_except_new = f.seq;
                         dbg_frame("Confirm DATA %d, ID %d, Frame Excepted %d, Tail %d\n",f.seq,*(short *)f.data,recv_front,recv_tail);
                         recv_arrived[f.seq%WINDOW_SIZE] = TRUE;
                         recv_window[f.seq%WINDOW_SIZE] = f;
                         nak_counter[f.seq%WINDOW_SIZE] = 0;
                         
                         while(recv_arrived[recv_front%WINDOW_SIZE] == TRUE){
-                            //Sliding the recv window, and update frame_expect_new
+                            //Sliding the recv window, and update frame_except_new
                             recv_arrived[recv_front%WINDOW_SIZE] = FALSE;
                             dbg_frame("Recv Window:Frame Excepted %d, Tail %d\n",recv_front,recv_tail);
                             FRAME_ITER buf = &recv_window[recv_window_slide()];
-                            frame_expect_new = recv_front;
+                            frame_except_new = recv_front;
                             dbg_frame("Sending DATA %d to Network Layer,ID %d\n",buf->seq,*(short *)buf->data);
                             put_packet(buf->data,len - 7);
                             
@@ -176,7 +171,7 @@ int main(int argc, char **argv){
                     post_arrived[f.ack%WINDOW_SIZE] = TRUE;
                     //push_ack_seq(f.ack);
                     while(post_arrived[oldest_frame_id%WINDOW_SIZE]&&oldest_frame_id != next_frame_id){
-                        //post_arrived[oldest_frame_id%WINDOW_SIZE] = FALSE;
+                        post_arrived[oldest_frame_id%WINDOW_SIZE] = FALSE;
                         --cnt_buffered;//此处减小规模
                         oldest_frame_id = (oldest_frame_id + 1) % (MAX_SEQ + 1);
                     }
@@ -195,7 +190,7 @@ int main(int argc, char **argv){
                 break;
 
             case ACK_TIMEOUT:
-                //TODO if there are any other ACK,Clear then all
+                dbg_frame("ACK timeout\n");
                 while(!is_ack_seq_empty()){
                     uint8 ack_num = pop_oldest_ack_seq();
                     send_ack_frame(ack_num);
@@ -215,16 +210,16 @@ int main(int argc, char **argv){
 static void choice_nak_to_send(){
     uint8 least_resend_frame = 0xff;
     uint8 least_resend_frame_cnt = 0xff;
-    //From recv_front forward to frame_expect_new,get the frame do not received
-    for(uint8 i = recv_front; i != frame_expect_new ; i = (i + 1) % (MAX_SEQ + 1)){
+    //From recv_front forward to frame_except_new,get the frame do not received
+    for(uint8 i = recv_front; i != frame_except_new ; i = (i + 1) % (MAX_SEQ + 1)){
         if(!recv_arrived[i%WINDOW_SIZE] && nak_counter[i%WINDOW_SIZE] < least_resend_frame_cnt){
             least_resend_frame_cnt = nak_counter[i%WINDOW_SIZE];
             least_resend_frame = i;
         }
     }
-    if(!recv_arrived[frame_expect_new%WINDOW_SIZE] && nak_counter[frame_expect_new%WINDOW_SIZE] < least_resend_frame_cnt ){
-        least_resend_frame = frame_expect_new;
-        least_resend_frame_cnt = nak_counter[frame_expect_new];
+    if(!recv_arrived[frame_except_new%WINDOW_SIZE] && nak_counter[frame_except_new%WINDOW_SIZE] < least_resend_frame_cnt ){
+        least_resend_frame = frame_except_new;
+        least_resend_frame_cnt = nak_counter[frame_except_new];
     }
     nak_counter[least_resend_frame%WINDOW_SIZE]++;
     dbg_frame("Least Resend Frame %d, ID %d, Count %d\n",least_resend_frame,*(short *)recv_window[least_resend_frame%WINDOW_SIZE].data,
@@ -311,12 +306,12 @@ static void send_ack_frame(uint8 seq){
 }
 
 static uint8 pop_oldest_ack_seq(){
-    uint8 ret = ack_sequence[ack_sequence_front % WINDOW_SIZE];
+    uint8 ret = ack_sequence[ack_sequence_front % SEQ_MOD];
     ack_sequence_front = (ack_sequence_front + 1) % SEQ_MOD;
     return ret;
 }
 static void push_ack_seq(uint8 seq){
-    ack_sequence[ack_sequence_tail % WINDOW_SIZE] = seq;
+    ack_sequence[ack_sequence_tail % SEQ_MOD] = seq;
     ack_sequence_tail = (ack_sequence_tail + 1) % SEQ_MOD;
 }
 static bool is_ack_seq_empty(){

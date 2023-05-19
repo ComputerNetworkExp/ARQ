@@ -27,11 +27,11 @@ typedef FRAME* FRAME_ITER;
 //DIY Constance
 static const bool TRUE = 1;
 static const bool FALSE = 0;
-static const int32 DATA_TIMER = 2000; //超时时间1500ms
+static const int32 DATA_TIMER = 2000; //超时时间2000ms
 static const int32 ACK_TIMER = 300; //超时时间300ms
 static const int32 TRAN_TIME = 1000*sizeof(FRAME)/8000;
 //static const uint8 NAK_INTERVAL = 4;
-//static const int32 CHANNEL_DELAY = 270;//270ms
+static const int32 PROP_DELAY = 270;//270ms
 #define MAX_SEQ 63
 #define SEQ_MOD (MAX_SEQ + 1)
 #define WINDOW_SIZE ((MAX_SEQ + 1) >> 1)
@@ -119,7 +119,7 @@ int main(int argc, char **argv){
                 }
                 if(f.kind == FRAME_NAK){
                     dbg_frame("Recv NAK  %d\n", f.ack);
-                    if(is_post_window_exist(f.ack) && get_timer(f.ack) < DATA_TIMER - ACK_TIMER - TRAN_TIME){
+                    if(is_post_window_exist(f.ack) && get_timer(f.ack) < DATA_TIMER - TRAN_TIME - PROP_DELAY*2){
                         dbg_frame("Resend DATA %d, ID %d\n", f.ack, *(short *)post_window[f.ack%WINDOW_SIZE].data);
                         send_data_frame(f.ack);
                     }else{
